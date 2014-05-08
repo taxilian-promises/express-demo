@@ -6,13 +6,15 @@ var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
 var sendresponse = require('sendresponse');
+var mongo_error_translate = require("./models/mongo_error_translate");
+
+// Load the database models and connect to the database
+require('./models');
+require('./db_config');
 
 var routes = require('./routes/index');
 var users = require('./routes/users');
 var rest = require('./routes/rest');
-
-require('./models');
-require('./db_config');
 
 var app = express();
 
@@ -28,6 +30,7 @@ app.use(cookieParser());
 app.use(require('less-middleware')({ src: path.join(__dirname, 'public') }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(sendresponse.middleware);
+sendresponse.registerTranslator(mongo_error_translate);
 
 app.use('/', routes);
 app.use('/users', users);
