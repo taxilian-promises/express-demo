@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+var Q = require("q");
+var mongoose = require("mongoose");
+require('../models');
+require('../db_config');
+var User = mongoose.model('User'),
+    Comment = mongoose.model('Comment');
+
+var first_names  = ['Ava', 'Olivia', 'Charlotte', 'Emma', 'Sophia', 'Noah', 'Mason', 'Ryan', 'Landon', 'Logan', 'John', 'Julia', 'Tina', 'Rob', 'Christina', 'James', 'Jessica', 'Julien', 'Jared', 'Mike', 'Melissa', 'Brian', 'Arial', 'Dane', 'Peter', 'Justin', 'Jeffrey', 'Margarite','Katelyn', 'Amy', 'Katrina', 'Alfonzo', 'Ralph', 'Susan', 'Bart', 'Jay', 'Lisa', 'Homer', 'Marge', 'Stanley', 'Bob', 'Phillippe', 'Clint'];
+var last_names   = ['Whiteson', 'Smith', 'Jones', 'Dooley', 'Davidson', 'Florez', 'Rodriguez', 'Alba', 'Mitchell', 'Dean', 'Marion', 'Klein', 'Borathion', 'Burns', 'Hitt', 'Tully', 'Potter'];
+var verbs = ["loathe", "tolerate", "am amused by", "am confused by", "am impressed with", "can't stand", "want to destroy"];
+
+function dropCollection(name) {
+    console.log("Dropping collection", name);
+    var dfd = Q.defer();
+    mongoose.connection.collection(name).drop(function() {
+        dfd.resolve();
+    });
+    return dfd.promise;
+}
+
+// perform several operations in parallel, wait for all to return
+// before resolving the promise
+function cleanDatabase() {
+    var waitFor = [];
+
+    console.log("Cleaning database");
+    waitFor.push(dropCollection('users'));
+    waitFor.push(dropCollection('comments'));
+
+    return Q.all(waitFor);
+}
+
+function randgen(words) { return words[Math.floor(Math.random()*words.length)]; }
+
+function createUser(first, last) {
+    var newUser = new User();
+    console.log("Creating user", first, last);
+    newUser.email = (first + "@domain.com").toLowerCase();
+    newUser.first = first;
+    newUser.last = last;
+    newUser.password = 'password';
+
+    // the newUser.save method doesn't return a promise,
+    // so we have to use Q.nbind, which wraps a standard node-style
+    // function and returns the result.
+    //
+    // Unfortunately the result is actually not the newUser object
+    // itself, so we use then to make this promise return the newUser object
+    // which will at that point be saved
+    return Q.nbind(newUser.save, newUser)().then(function() {
+        return newUser;
+    });
+}
+function createRandomUser() {
+    return createUser(randgen(first_names), randgen(last_names));
+}
+
+function addCommentsForUser(userDfd) {
+    // Before we can add the comments, we need userDfd to resolve first.
+    // It is possible it may already be resolved, so we use Q.when which
+    // will make it a promise -- if it's a value, the promise will be immediately
+    // resolved.
+    return Q.when(userDfd).then(function(user) {
+        var savedObjects = [];
+        var comment;
+        for (var i = 0; i < 10; ++i) {
+            comment = new Comment();
+            comment.user = user;
+            comment.text = "I " + randgen(verbs) + " " + randgen(first_names);
+            savedObjects.push(Q.nbind(comment.save, comment)());
+        }
+        return Q.all(savedObjects);
+    });
+}
+
+var doneDfd = Q(null); // Initial resolved promise
+
+doneDfd = doneDfd.then(cleanDatabase());
+
+// create users
+var userDfd, commentsDfd;
+for (var i = 0; i < 20; ++i) {
+    userDfd = doneDfd.then(createRandomUser);
+    commentsDfd = addCommentsForUser(userDfd);
+    doneDfd = Q.all([userDfd, commentsDfd]);
+}
+
+doneDfd.then(function() {
+    console.log("All done!");
+}, function(err) {
+    console.error("Everything has broken with the error: ", err);
+});
+
+Q.allSettled([doneDfd]).then(function() {
+    console.log("Closing database");
+    mongoose.disconnect();
+});
